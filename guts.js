@@ -2,44 +2,79 @@
 const xUniq = _.uniq(_.map(sorted, (s)=> s.X))
 const yUniq = _.uniq(_.map(sorted, (s)=> s.Y))
 
-const ROOM_WIDTH = _.max(yUniq);
-const ROOM_HEIGHT = _.max(xUniq);
+const ROOM_WIDTH = _.max(xUniq);
+const ROOM_HEIGHT = _.max(yUniq);
 
 const pairKey = (x, y) => `${x},${y}`;
 const pairs = {};
 _.each(sorted, (s) => { pairs[pairKey(s.X, s.Y)] = true; })
 
-const stepRunner = (steps) => {
-	let current = 0;
-	let stepCount = 1000;
-	let running = false;
+const cellForStep = (step) => {
+	return document.getElementById(cellId(step.X, step.Y));
+}
 
-	const run = (rest, lastElement = {}) => {
-		lastElement.className = "off";
-		if(rest.length === 0) {
-			running = false;
-			return;
+const stepRunner = (steps) => {
+	let currentStepIndex = -1;
+	let running = false;
+	let pause = 75;
+
+	const setClassForStepAtIndex = (stepIndex, elementClass) => {
+		const step = steps[stepIndex];
+		cellForStep(step).className = elementClass;
+	}
+	
+	const atEnd = () => currentStepIndex >= steps.length;
+
+	const updateDisplay = () => {
+		const step = steps[currentStepIndex];
+		updateTextElement("stepIndex", `Step: ${currentStepIndex}`)
+		updateTextElement("timestamp", `At: ${step.Timestamp}`);
+		updateTextElement("coord", `X: ${step.X}, Y: ${step.Y}, Z: ${step.Z}`);
+	}
+
+	const step = () => {
+		if (atEnd()) return;
+		if (currentStepIndex >= 0) {
+			setClassForStepAtIndex(currentStepIndex, "off");
 		}
-		let nextStep = rest[0];
-		let nextElement = document.getElementById(cellId(nextStep.X, nextStep.Y));
-		if(!nextElement) {
-			console.log(`NO ROOM: ${nextStep}`);
-		}
-		nextElement.className = "on";
-		sleep(120).then(() => { run(rest.slice(1, -1), nextElement)});
+		currentStepIndex++;
+		setClassForStepAtIndex(currentStepIndex, "on");
+		updateDisplay();
+	}
+
+	const back = () => {
+		if (currentStepIndex <= 0) return;
+		setClassForStepAtIndex(currentStepIndex, "off");
+		currentStepIndex--;
+		setClassForStepAtIndex(currentStepIndex, "on");
+		updateDisplay();
+	}
+	
+	const slower = () => pause += 25;
+	const faster = () => pause = _.max(0, pause - 25);
+	
+	const runLoop = () => {
+		if (atEnd() || !running) return;
+		step();
+		sleep(pause).then(runLoop);
 	}
 
 	return {
+		step, back, faster, slower,
+		pause: () => { running = false; },
 		doNext: () => {
 			if (!running) {
 				running = true;
-				run(steps.slice(current, current + stepCount));
-				current += stepCount;
+				runLoop();
 			}
 		}
 	};
 }
 
+const updateTextElement = (elementId, text) => {
+	const element = document.getElementById(elementId);
+	element.innerHTML = text;
+}
 const download = (text, name, type) => {
     var a = document.createElement("a");
     var file = new Blob([text], {type: type});
@@ -60,7 +95,25 @@ const buildButton = (text, fnct) => {
 const buildHeader = (runner) => {
 	let = header = document.createElement("div");
 	header.appendChild(buildButton("Next Steps", runner.doNext));
+	header.appendChild(buildButton("Pause", runner.pause));
+	header.appendChild(buildButton("Step", runner.step));
+	header.appendChild(buildButton("Back", runner.back));
+	header.appendChild(buildButton("Faster", runner.faster));
+	header.appendChild(buildButton("Slower", runner.slower));
 	return header;
+}
+
+const buildFooter = () => {
+	const footer = document.createElement("div");
+	footer.id = "footer";
+	
+	_.each(["stepIndex", "timestamp", "coord"], (spanId) => {
+		const spanElement = document.createElement("span");
+		spanElement.id = spanId;
+		footer.appendChild(spanElement);
+	});
+
+	return footer;
 }
 
 const cellId = (x, y) => "c."+x+"."+y;
@@ -72,16 +125,17 @@ let buildDisplay = (elementId) => {
 	rootNode.innerHTML = "";
 	rootNode.appendChild(buildHeader(runner));
 	rootNode.appendChild(matTableElement());
+	rootNode.appendChild(buildFooter());
 }
 
 const matTableElement = () => {
 	let matTable = document.createElement("table");
-	for(let i=0; i<=ROOM_HEIGHT; i++) {
+	for(let y=ROOM_HEIGHT-1; y>=0; y--) {
 		let rowNode = document.createElement("tr");
-		for(let j=0; j<=ROOM_WIDTH; j++) {
+		for(let x=0; x<=ROOM_WIDTH; x++) {
 			let cell = document.createElement("td");
-			cell.id = cellId(i, j);
-			cell.className = pairs[pairKey(i, j)] ? "off" : "never";
+			cell.id = cellId(x, y);
+			cell.className = pairs[pairKey(x, y)] ? "off" : "never";
 			rowNode.appendChild(cell);
 		}
 		matTable.appendChild(rowNode);
@@ -96,6 +150,7 @@ let styleInit = () => {
 	style_rules.push("td.never { background-color: gray; }")
 	style_rules.push("td.on { background-color: magenta; }")
     style_rules.push("table { border-collapse:collapse; margin: 20px auto 20px auto; }");
+	style_rules.push("#footer span { padding: 5px; }")
     var style = document.createElement("style");
     style.type = "text/css";
     style.innerHTML = style_rules.join("\n");
