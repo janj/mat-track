@@ -1,32 +1,55 @@
 
-const xUniq = _.uniq(_.map(sorted, (s)=> s.X))
-const yUniq = _.uniq(_.map(sorted, (s)=> s.Y))
-
-const ROOM_WIDTH = _.max(xUniq);
-const ROOM_HEIGHT = _.max(yUniq);
-
-const pairKey = (x, y) => `${x},${y}`;
-const pairs = {};
-_.each(sorted, (s) => { pairs[pairKey(s.X, s.Y)] = true; })
+const buildDisplay = (elementId, sortedSteps) => {
+	const stepData = stepDataFactory(sortedSteps);
+	const runner = stepRunner(stepData);
+	styleInit();
+	let rootNode = document.getElementById(elementId);
+	rootNode.innerHTML = "";
+	rootNode.appendChild(buildHeader(runner));
+	rootNode.appendChild(matTableElement(stepData));
+	rootNode.appendChild(buildFooter());
+}
 
 const cellForStep = (step) => {
 	return document.getElementById(cellId(step.X, step.Y));
 }
 
-const stepRunner = (steps) => {
+const stepDataFactory = (steps) => {
+	const xUniq = _.uniq(_.map(sorted, (s)=> s.X))
+	const yUniq = _.uniq(_.map(sorted, (s)=> s.Y))
+
+	const ROOM_WIDTH = _.max(xUniq);
+	const ROOM_HEIGHT = _.max(yUniq);
+
+	const pairKey = (x, y) => `${x},${y}`;
+	const pairs = {};
+	_.each(sorted, (s) => { pairs[pairKey(s.X, s.Y)] = true; })
+
+	return {
+		stepAtIndex: (index) => steps[index],
+		numberOfSteps: steps.length,
+		width: ROOM_WIDTH,
+		height: ROOM_HEIGHT,
+		isSteppedOn: (x, y) => pairs[pairKey(x,y)]
+	}
+}
+
+const stepRunner = (stepData) => {
 	let currentStepIndex = -1;
 	let running = false;
 	let pause = 75;
+	
+	const currentStep = () => stepData.stepAtIndex(currentStepIndex);
 
 	const setClassForStepAtIndex = (stepIndex, elementClass) => {
-		const step = steps[stepIndex];
+		const step = stepData.stepAtIndex(stepIndex);
 		cellForStep(step).className = elementClass;
 	}
 	
-	const atEnd = () => currentStepIndex >= steps.length;
+	const atEnd = () => currentStepIndex >= stepData.numberOfSteps;
 
 	const updateDisplay = () => {
-		const step = steps[currentStepIndex];
+		const step = currentStep();
 		updateTextElement("stepIndex", `Step: ${currentStepIndex}`)
 		updateTextElement("timestamp", `At: ${step.Timestamp}`);
 		updateTextElement("coord", `X: ${step.X}, Y: ${step.Y}, Z: ${step.Z}`);
@@ -53,7 +76,11 @@ const stepRunner = (steps) => {
 	const slower = () => pause += 25;
 	const faster = () => pause = _.max(0, pause - 25);
 	
-	const runLoop = () => {
+	const runLoop = (restart) => {
+		if (restart) {
+			if (running) return;
+			running = true;
+		}
 		if (atEnd() || !running) return;
 		step();
 		sleep(pause).then(runLoop);
@@ -62,12 +89,7 @@ const stepRunner = (steps) => {
 	return {
 		step, back, faster, slower,
 		pause: () => { running = false; },
-		doNext: () => {
-			if (!running) {
-				running = true;
-				runLoop();
-			}
-		}
+		doNext: () => { runLoop(true); }
 	};
 }
 
@@ -75,6 +97,7 @@ const updateTextElement = (elementId, text) => {
 	const element = document.getElementById(elementId);
 	element.innerHTML = text;
 }
+
 const download = (text, name, type) => {
     var a = document.createElement("a");
     var file = new Blob([text], {type: type});
@@ -118,24 +141,14 @@ const buildFooter = () => {
 
 const cellId = (x, y) => "c."+x+"."+y;
 
-let buildDisplay = (elementId) => {
-	const runner = stepRunner(sorted);
-	styleInit();
-	let rootNode = document.getElementById(elementId);
-	rootNode.innerHTML = "";
-	rootNode.appendChild(buildHeader(runner));
-	rootNode.appendChild(matTableElement());
-	rootNode.appendChild(buildFooter());
-}
-
-const matTableElement = () => {
+const matTableElement = (stepData) => {
 	let matTable = document.createElement("table");
-	for(let y=ROOM_HEIGHT-1; y>=0; y--) {
+	for(let y=stepData.height-1; y>=0; y--) {
 		let rowNode = document.createElement("tr");
-		for(let x=0; x<=ROOM_WIDTH; x++) {
+		for(let x=0; x<=stepData.width; x++) {
 			let cell = document.createElement("td");
 			cell.id = cellId(x, y);
-			cell.className = pairs[pairKey(x, y)] ? "off" : "never";
+			cell.className = stepData.isSteppedOn(x, y) ? "off" : "never";
 			rowNode.appendChild(cell);
 		}
 		matTable.appendChild(rowNode);
