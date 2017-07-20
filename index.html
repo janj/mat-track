@@ -2,11 +2,19 @@
 	<head>
 <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
 		<script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.4/lodash.min.js"></script>
-		<script src="sorted.js"></script>
+		<script src="upper.js"></script>
+		<script src="lower.js"></script>
 		<script src="guts.js"></script>
 	</head>
 	
-	<body onload="buildDisplay('display', sorted)">
-		<div id="display"></div>
+	<body onload="buildDisplay([{id: 'upperDisplay', steps: uSorted}, {id: 'lowerDisplay', steps: lSorted}])">
+		<h3>Upper Display</h3>
+		<div id="upperDisplay"></div>
+		<h3>Lower Display</h3>
+		<div id="lowerDisplay"></div>
 	</body>
+	
 </html>
+
+
+
