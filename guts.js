@@ -17,7 +17,8 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const buildDisplay = (displays) => {
 	_.each(displays, (display) => {
 		const stepData = stepDataFactory(display.steps);
-		const runner = stepRunner(stepData);
+		const runner = timeRunner(display.steps);
+		// const runner = stepRunner(stepData);
 		const displayController = displayFactory(display.id, runner, stepData);
 		runner.setDisplay(displayController);
 	});
@@ -43,6 +44,65 @@ const stepDataFactory = (steps) => {
 	}
 }
 
+const timeRunner = (stepData) => {
+	let currentTime = stepData[0].Timestamp;
+	let running = false;
+	let displayController = null;
+	let currentSteps = [];
+	let pause = 100;
+
+	const atEnd = () => stepData.length === 0;
+	
+	const addCurrentSteps = () => {
+		while (!!stepData.length && stepData[0].Timestamp < currentTime) {
+			currentSteps.push(stepData.shift());
+		}
+	}
+	
+	const updateCurrentStepsDisplay = () => {
+		while (!!currentSteps.length && currentSteps[0].Timestamp + 1000 < currentTime) {
+			displayController.updateCell(currentSteps.shift(), false);
+		}
+		_.each(currentSteps, (step) => displayController.updateCell(step, true));
+	}
+
+	const updateDisplay = () => displayController.updateDisplay({ Timestamp: currentTime });
+
+	const timeToNextStep = () => stepData[0].Timestamp - currentTime;
+
+	const step = () => {
+		if (atEnd()) return;
+		
+		if (timeToNextStep() > 10000) {
+			currentTime += timeToNextStep() / 10;
+		} else {
+			currentTime += 100;
+		}
+		
+		addCurrentSteps();
+		updateCurrentStepsDisplay();
+		updateDisplay();
+	}
+
+	const runLoop = (restart) => {
+		if (restart) {
+			if (running) return;
+			running = true;
+		}
+		if (atEnd() || !running) return;
+		step();
+		sleep(pause).then(runLoop);
+	}
+	
+	return {
+		faster: () => { if (pause > 0) pause -= 10; },
+		slower: () => { pause += 10; },
+		pause: () => { running = false; },
+		doNext: () => { runLoop(true); },
+		setDisplay: (display) => displayController = display
+	};
+}
+
 const stepRunner = (stepData) => {
 	let currentStepIndex = -1;
 	let running = false;
@@ -51,13 +111,8 @@ const stepRunner = (stepData) => {
 	
 	const currentStep = () => stepData.stepAtIndex(currentStepIndex);
 	const atEnd = () => currentStepIndex >= stepData.numberOfSteps;
-	const updateDisplay = () => displayController.updateDisplay(currentStep(), currentStepIndex);
+	const updateDisplay = () => displayController.updateDisplay(_.merge(currentStep(), { currentStepIndex }));
 
-	const setClassForStepAtIndex = (stepIndex, elementClass) => {
-		const step = stepData.stepAtIndex(stepIndex);
-		cellForStep(step).className = elementClass;
-	}
-	
 	const updateCurrentStep = (isOn) => {
 		displayController.updateCell(currentStep(), isOn);
 	}
@@ -92,7 +147,7 @@ const stepRunner = (stepData) => {
 		step();
 		sleep(pause).then(runLoop);
 	}
-
+	
 	return {
 		step, back, faster, slower,
 		pause: () => { running = false; },
@@ -145,10 +200,13 @@ const displayFactory = (key, runner, stepData) => {
 		return matTable;
 	}
 	
-	const updateDisplay = (step, currentStepIndex) => {
-		updateTextElement("stepIndex", `Step: ${currentStepIndex}`);
-		updateTextElement("timestamp", `At: ${step.Timestamp}`);
-		updateTextElement("coord", `X: ${step.X}, Y: ${step.Y}, Z: ${step.Z}`);
+	const updateDisplay = (stepData) => {
+		const stepIndex = !!stepData.currentStepIndex ? `Step: ${stepData.currentStepIndex}` : "";
+		const dateString = !!stepData.Timestamp ? dateStringForMillis(stepData.Timestamp) : "";
+		const coord = !!stepData.X ? `X: ${stepData.X}, Y: ${stepData.Y}, Z: ${stepData.Z}` : "";
+		updateTextElement("stepIndex", stepIndex);
+		updateTextElement("timestamp", dateString);
+		updateTextElement("coord", coord);
 	}
 	
 	const updateCell = (step, isOn) => {
@@ -156,14 +214,18 @@ const displayFactory = (key, runner, stepData) => {
 		cell.className = isOn ? "on" : "off";
 	}
 	
+	const appendChildButton = (parentElement, label, func) => {
+		if (!!func)	parentElement.appendChild(buildButton(label, func));
+	}
+
 	const buildHeader = (runner) => {
 		let = header = document.createElement("div");
-		header.appendChild(buildButton("Next Steps", runner.doNext));
-		header.appendChild(buildButton("Pause", runner.pause));
-		header.appendChild(buildButton("Step", runner.step));
-		header.appendChild(buildButton("Back", runner.back));
-		header.appendChild(buildButton("Faster", runner.faster));
-		header.appendChild(buildButton("Slower", runner.slower));
+		appendChildButton(header, "Next Steps", runner.doNext);
+		appendChildButton(header, "Pause", runner.pause);
+		appendChildButton(header, "Step", runner.step);
+		appendChildButton(header, "Back", runner.back);
+		appendChildButton(header, "Faster", runner.faster);
+		appendChildButton(header, "Slower", runner.slower);
 		return header;
 	};
 	
@@ -176,6 +238,12 @@ const displayFactory = (key, runner, stepData) => {
 	return {
 		updateDisplay, updateCell
 	};
+}
+
+const dateStringForMillis = (millis) => {
+	const d = new Date(0);
+	d.setUTCMilliseconds(millis);
+	return d.toISOString();
 }
 
 const download = (text, name, type) => {
