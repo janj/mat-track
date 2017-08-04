@@ -6,6 +6,9 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 	style_rules.push("td.off { background-color: lightgray; }")
 	style_rules.push("td.never { background-color: gray; }")
 	style_rules.push("td.on { background-color: magenta; }")
+	style_rules.push("td.lightEdge { background-color: lightblue; }")
+	style_rules.push("td.medEdge { background-color: blue; }")
+	style_rules.push("td.heavyEdge { background-color: darkblue; }")
     style_rules.push("table { border-collapse:collapse; margin: 20px auto 20px auto; }");
 	style_rules.push(".footer span { padding: 5px; }")
     const style = document.createElement("style");
@@ -44,12 +47,42 @@ const stepDataFactory = (steps) => {
 	}
 }
 
+const stepAnalyzer = (stepData) => {
+	let foundEdgeSteps = null;
+	
+	const stepMap = (step) => `${step.X}.${step.Y}`;
+	
+	const edgeStepDict = () => {
+		if (!foundEdgeSteps) {
+			const atEdge = (step) => step.X == 0 || step.Y == 0 || step.X == stepData.width || step.Y == stepData.height;
+			foundEdgeSteps = {};
+			for (let i=0; i<stepData.numberOfSteps; i++) {
+				const step = stepData.stepAtIndex(i);
+				if (atEdge(step)) {
+					foundEdgeSteps[stepMap(step)] = foundEdgeSteps[stepMap(step)] || 0;
+					foundEdgeSteps[stepMap(step)]++;
+				}
+			}
+			console.log(Object.keys(foundEdgeSteps).length)
+		}
+		return foundEdgeSteps;
+	}
+	
+	return {
+		isEdgeStep: step => !!edgeStepDict()[stepMap(step)],
+		edgeSteps: edgeStepDict(),
+		edgeStepCount: step => edgeStepDict()[stepMap(step)]
+	}
+}
+
 const timeRunner = (stepData) => {
 	let currentTime = stepData[0].Timestamp;
 	let running = false;
 	let displayController = null;
 	let currentSteps = [];
 	let pause = 100;
+	
+	const stepLingerTime = 1000;
 
 	const atEnd = () => stepData.length === 0;
 	
@@ -60,7 +93,7 @@ const timeRunner = (stepData) => {
 	}
 	
 	const updateCurrentStepsDisplay = () => {
-		while (!!currentSteps.length && currentSteps[0].Timestamp + 1000 < currentTime) {
+		while (!!currentSteps.length && currentSteps[0].Timestamp + stepLingerTime < currentTime) {
 			displayController.updateCell(currentSteps.shift(), false);
 		}
 		_.each(currentSteps, (step) => displayController.updateCell(step, true));
@@ -83,7 +116,7 @@ const timeRunner = (stepData) => {
 		updateCurrentStepsDisplay();
 		updateDisplay();
 	}
-
+	
 	const runLoop = (restart) => {
 		if (restart) {
 			if (running) return;
@@ -95,6 +128,7 @@ const timeRunner = (stepData) => {
 	}
 	
 	return {
+		step,
 		faster: () => { if (pause > 0) pause -= 10; },
 		slower: () => { pause += 10; },
 		pause: () => { running = false; },
@@ -157,6 +191,7 @@ const stepRunner = (stepData) => {
 }
 
 const displayFactory = (key, runner, stepData) => {
+	const analyzer = stepAnalyzer(stepData);
 	const idx = (elementId) => `${key}_${elementId}`;
 	
 	const updateTextElement = (elementId, text) => {
@@ -185,6 +220,24 @@ const displayFactory = (key, runner, stepData) => {
 	
 	const cellId = (x, y) => idx(`c.${x}.${y}`);
 	
+	const cellClassForStep = (step, isOn) => {
+		if (isOn) {
+			return "on";
+		} else if (!stepData.isSteppedOn(step.X, step.Y)) {
+			return "never";
+		} else if (analyzer.isEdgeStep(step)) {
+			const stepCount = analyzer.edgeStepCount(step);
+			if (stepCount > 250) {
+				return "heavyedge";
+			} else if (stepCount > 100) {
+				return "mededge";
+			} else if (stepCount > 10) {
+				return "lightedge";
+			}
+		}
+		return "off";
+	}
+	
 	const matTableElement = (stepData) => {
 		let matTable = document.createElement("table");
 		for(let y=stepData.height; y>=0; y--) {
@@ -192,7 +245,7 @@ const displayFactory = (key, runner, stepData) => {
 			for(let x=0; x<=stepData.width; x++) {
 				let cell = document.createElement("td");
 				cell.id = cellId(x, y);
-				cell.className = stepData.isSteppedOn(x, y) ? "off" : "never";
+				cell.className = cellClassForStep({X: x, Y: y});
 				rowNode.appendChild(cell);
 			}
 			matTable.appendChild(rowNode);
@@ -211,7 +264,7 @@ const displayFactory = (key, runner, stepData) => {
 	
 	const updateCell = (step, isOn) => {
 		const cell = document.getElementById(cellId(step.X, step.Y));
-		cell.className = isOn ? "on" : "off";
+		cell.className = cellClassForStep(step, isOn);
 	}
 	
 	const appendChildButton = (parentElement, label, func) => {
