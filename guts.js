@@ -20,7 +20,7 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const buildDisplay = (displays) => {
 	_.each(displays, (display) => {
 		const stepData = stepDataFactory(display.steps);
-		const runner = timeRunner(display.steps);
+		const runner = timeRunner(stepData);
 		// const runner = stepRunner(stepData);
 		const displayController = displayFactory(display.id, runner, stepData);
 		runner.setDisplay(displayController);
@@ -76,32 +76,60 @@ const stepAnalyzer = (stepData) => {
 }
 
 const timeRunner = (stepData) => {
-	let currentTime = stepData[0].Timestamp;
+	let currentTime = stepData.stepAtIndex(0).Timestamp;
 	let running = false;
 	let displayController = null;
-	let currentSteps = [];
 	let pause = 100;
 	
+	let currentLingerIndex = 0;
+	let currentStepIndex = 0;
+	
+	const analyzer = stepAnalyzer(stepData);
 	const stepLingerTime = 1000;
 
-	const atEnd = () => stepData.length === 0;
-	
-	const addCurrentSteps = () => {
-		while (!!stepData.length && stepData[0].Timestamp < currentTime) {
-			currentSteps.push(stepData.shift());
+	const atEnd = () => currentLingerIndex >= stepData.numberOfSteps;
+
+	const cellClassForStep = (step, isOn) => {
+		if (isOn) {
+			return "on";
+		} else if (!stepData.isSteppedOn(step.X, step.Y)) {
+			return "never";
+		} else if (analyzer.isEdgeStep(step)) {
+			const stepCount = analyzer.edgeStepCount(step);
+			if (stepCount > 250) {
+				return "heavyedge";
+			} else if (stepCount > 100) {
+				return "mededge";
+			} else if (stepCount > 10) {
+				return "lightedge";
+			}
 		}
+		return "off";
 	}
 	
 	const updateCurrentStepsDisplay = () => {
-		while (!!currentSteps.length && currentSteps[0].Timestamp + stepLingerTime < currentTime) {
-			displayController.updateCell(currentSteps.shift(), false);
+		let lingerStep = stepData.stepAtIndex(currentLingerIndex);
+		while(lingerStep.Timestamp + stepLingerTime < currentTime) {
+			displayController.updateCellClass(lingerStep, cellClassForStep(lingerStep, false));
+			currentLingerIndex++;
+			lingerStep = stepData.stepAtIndex(currentLingerIndex);
 		}
-		_.each(currentSteps, (step) => displayController.updateCell(step, true));
+		
+		let currentStep = stepData.stepAtIndex(currentStepIndex);
+		while(currentStep.Timestamp < currentTime && currentStepIndex < stepData.numberOfSteps) {
+			currentStepIndex++;
+			currentStep = stepData.stepAtIndex(currentStepIndex);
+		}
+		
+		for(let onIndex = currentLingerIndex; onIndex < currentStepIndex; onIndex++) {
+			const step = stepData.stepAtIndex(onIndex);
+			displayController.updateCellClass(step, cellClassForStep(step, true));
+		}
 	}
 
 	const updateDisplay = () => displayController.updateDisplay({ Timestamp: currentTime });
 
-	const timeToNextStep = () => stepData[0].Timestamp - currentTime;
+	const timeToNextStep = () => stepData.stepAtIndex(currentStepIndex).Timestamp - currentTime;
 
 	const step = () => {
 		if (atEnd()) return;
@@ -111,8 +139,6 @@ const timeRunner = (stepData) => {
 		} else {
 			currentTime += 100;
 		}
-		
-		addCurrentSteps();
 		updateCurrentStepsDisplay();
 		updateDisplay();
 	}
@@ -148,7 +174,8 @@ const stepRunner = (stepData) => {
 	const updateDisplay = () => displayController.updateDisplay(_.merge(currentStep(), { currentStepIndex }));
 
 	const updateCurrentStep = (isOn) => {
-		displayController.updateCell(currentStep(), isOn);
+		const cellClass = isOn ? "on" : "off";
+		displayController.updateCellClass(currentStep(), cellClass);
 	}
 
 	const step = () => {
@@ -191,7 +218,6 @@ const stepRunner = (stepData) => {
 }
 
 const displayFactory = (key, runner, stepData) => {
-	const analyzer = stepAnalyzer(stepData);
 	const idx = (elementId) => `${key}_${elementId}`;
 	
 	const updateTextElement = (elementId, text) => {
@@ -220,24 +246,6 @@ const displayFactory = (key, runner, stepData) => {
 	
 	const cellId = (x, y) => idx(`c.${x}.${y}`);
 	
-	const cellClassForStep = (step, isOn) => {
-		if (isOn) {
-			return "on";
-		} else if (!stepData.isSteppedOn(step.X, step.Y)) {
-			return "never";
-		} else if (analyzer.isEdgeStep(step)) {
-			const stepCount = analyzer.edgeStepCount(step);
-			if (stepCount > 250) {
-				return "heavyedge";
-			} else if (stepCount > 100) {
-				return "mededge";
-			} else if (stepCount > 10) {
-				return "lightedge";
-			}
-		}
-		return "off";
-	}
-	
 	const matTableElement = (stepData) => {
 		let matTable = document.createElement("table");
 		for(let y=stepData.height; y>=0; y--) {
@@ -245,7 +253,7 @@ const displayFactory = (key, runner, stepData) => {
 			for(let x=0; x<=stepData.width; x++) {
 				let cell = document.createElement("td");
 				cell.id = cellId(x, y);
-				cell.className = cellClassForStep({X: x, Y: y});
+				cell.className = stepData.isSteppedOn(x, y) ? "off" : "never";
 				rowNode.appendChild(cell);
 			}
 			matTable.appendChild(rowNode);
@@ -261,10 +269,9 @@ const displayFactory = (key, runner, stepData) => {
 		updateTextElement("timestamp", dateString);
 		updateTextElement("coord", coord);
 	}
-	
-	const updateCell = (step, isOn) => {
-		const cell = document.getElementById(cellId(step.X, step.Y));
-		cell.className = cellClassForStep(step, isOn);
+
+	const updateCellClass = (step, cellClass) => {
+		document.getElementById(cellId(step.X, step.Y)).className = cellClass;
 	}
 	
 	const appendChildButton = (parentElement, label, func) => {
@@ -289,7 +296,7 @@ const displayFactory = (key, runner, stepData) => {
 	rootNode.appendChild(buildFooter());
 	
 	return {
-		updateDisplay, updateCell
+		updateDisplay, updateCellClass
 	};
 }
 
